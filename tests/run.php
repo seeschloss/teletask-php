@@ -178,6 +178,25 @@ test('rsa: known SHA1/type-1 signature vector', function (): void {
     assertTrue(!RsaSigner::verify($data . 'x', $signature));
 });
 
+test('license: payload omits the act but the signature covers it', function (): void {
+    $strings = LocalConnection::licenseStrings('normal', '/813103795', 0, 982988);
+    assertSame('TDS15101:1/normal/813103795/0/982988', $strings['signed']);
+    assertSame('TDS15101:1/normal/813103795/0/', $strings['payload']);
+
+    // Signature captured from the working old-phone app.
+    $captured = '2ecc7465d029cfe78c75093b069a8c490a760829f9bbde71bc8ada3ccf5f0332'
+        . 'bb801916d1d15f6f7d01f5ef646d38f5e279131caf996c367f7be2995fad2864'
+        . 'bcc2eef080db9563fbb9119ca251c6b26f42689690b53f5c373a8453da06a0b8'
+        . '89b9740667e745f6e63bb9d3bb15b565abad5aed92b8e02de0b184bb9992b1cd';
+    assertSame($captured, bin2hex(RsaSigner::sign($strings['signed'])));
+});
+
+test('license: act is rendered as a signed 32-bit integer', function (): void {
+    $strings = LocalConnection::licenseStrings('normal', '/123', 0, 0x80000001);
+    assertSame('TDS15101:1/normal/123/0/-2147483647', $strings['signed']);
+    assertSame('TDS15101:1/normal/123/0/', $strings['payload']);
+});
+
 // ---------------------------------------------------------------------------
 // Configuration parsing
 // ---------------------------------------------------------------------------

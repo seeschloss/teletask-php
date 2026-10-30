@@ -54,29 +54,35 @@ final class MockCentral
         }
 
         $payload = $frame->payload;
-        $text = '';
+        $payloadText = '';
         $i = 1;
         for (; $i < count($payload); $i++) {
             if ($payload[$i] === 0x3B) {
                 break;
             }
-            $text .= chr($payload[$i]);
+            $payloadText .= chr($payload[$i]);
         }
         $signatureB64 = '';
         for ($j = $i + 1; $j < count($payload); $j++) {
             $signatureB64 .= chr($payload[$j]);
         }
         $signature = base64_decode($signatureB64, true);
-        $expected = 'TDS15101:1/normal/881000415/0/' . $act;
 
-        self::log('license string = ' . $text);
-        if ($signature === false || !RsaSigner::verify($text, $signature)) {
+        // iSGUI signs the prefix plus the act number, but sends only the
+        // prefix in the payload. The central unit knows the act from its own
+        // challenge and reconstructs the signed string.
+        $signedText = $payloadText . $act;
+        $expectedPayload = 'TDS15101:1/normal/881000415/0/';
+
+        self::log('license payload = ' . $payloadText);
+        self::log('license signed  = ' . $signedText);
+        if ($signature === false || !RsaSigner::verify($signedText, $signature)) {
             self::log('signature verification FAILED');
 
             return;
         }
-        if ($text !== $expected) {
-            self::log('unexpected license string; expected ' . $expected);
+        if ($payloadText !== $expectedPayload) {
+            self::log('unexpected license payload; expected ' . $expectedPayload);
 
             return;
         }

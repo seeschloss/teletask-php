@@ -228,11 +228,29 @@ operation. `RsaSigner` does exactly that with
 The response payload is:
 
 ```text
-[13] + ASCII("<string>;") + ASCII(base64(signature))
+[13] + ASCII("<prefix>;") + ASCII(base64(signature))
 ```
 
-It is sent as a normal frame, XOR-obfuscated with the challenge key. The
-central unit replies with `CCTLIC` (command `14`) and a status:
+There is an important iSGUI quirk here: the **signature covers the full string
+including the new act number**, but the **payload string omits the act
+number**. For example, with `act=982988` the signature is over:
+
+```text
+TDS15101:1/normal/813103795/0/982988
+```
+
+but the payload contains:
+
+```text
+TDS15101:1/normal/813103795/0/;
+```
+
+The central unit knows the act from its own challenge and reconstructs the
+signed string. This was confirmed byte-for-byte against a packet capture from
+a working installation.
+
+The response is sent as a normal frame, XOR-obfuscated with the challenge key.
+The central unit replies with `CCTLIC` (command `14`) and a status:
 
 - `0` = no license
 - `1` = test license
@@ -290,14 +308,17 @@ Run `probe --debug` and look at the output. The most common causes are:
 
 1. **Wrong control port.** The `.gui` says `portnr="55956"`; use
    `--control-port 55956` explicitly to test.
-2. **Newer firmware with a different key.** The RSA key in this library is the
-   one embedded in iSGUI 2.6.57 (the latest Android release, 2020). TELETASK's
-   public demo server, for example, runs newer firmware and rejected that key
-   during development. A local unit with matching firmware should accept it.
-3. **Wrong `centrales` value.** It comes from the `.gui`; override it with
+2. **Wrong `centrales` value.** It comes from the `.gui`; override it with
    `--centrales /<serial>` if needed.
-4. **Test/normal option mismatch.** Try `--option test` or `--option normal`.
-5. **XOR mode.** Try `--license-xor yes` or `--license-xor no`.
+3. **Test/normal option mismatch.** Try `--option test` or `--option normal`.
+4. **XOR mode.** Try `--license-xor yes` or `--license-xor no`.
+5. **The unit is busy or rate-limiting.** The public demo server occasionally
+   closes a connection when several handshakes are made in quick succession;
+   wait a second and retry. A central unit may also allow only one GUI
+   connection at a time, so close the iSGUI app on the old phone while testing.
+
+The public demo server (`isgui.teletask.be`) is known to work with this
+implementation (relay, dimmer, RGB, tunable-white and monitoring were tested).
 
 If the handshake still fails, please capture `probe --debug` output. It shows
 the challenge, the exact license string, the signature length, and the

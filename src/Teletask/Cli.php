@@ -315,6 +315,10 @@ final class Cli
             );
             $report = null;
             if (isset($options['wait'])) {
+                // Some units do not push a report for every SET. Ask for the
+                // current state explicitly after a short settle delay.
+                usleep(100_000);
+                $connection->get($target['cen'], $target['fnc'], $target['load']);
                 $report = $connection->waitForReport(
                     $target['cen'],
                     $target['fnc'],
@@ -426,6 +430,8 @@ final class Cli
             . $controlHost . ':' . $controlPort
             . ($duration > 0 ? ' for ' . $duration . 's' : ' (Ctrl-C to stop)') . PHP_EOL);
 
+        $lastStates = [];
+
         try {
             if (!isset($options['no_initial'])) {
                 $initialSeen = [];
@@ -440,11 +446,17 @@ final class Cli
             }
 
             $connection->monitor(
-                static function (array $report, Frame $frame) use ($addressMap, $selected, $options): void {
+                static function (array $report, Frame $frame) use ($addressMap, $selected, $options, &$lastStates): void {
                     $key = $report['cen'] . ':' . $report['fnc'] . ':' . $report['load'];
                     if (!isset($selected[$key])) {
                         return;
                     }
+
+                    $stateSignature = $key . '|' . md5(json_encode($report['data']) ?: '');
+                    if (!isset($options['no_dedup']) && ($lastStates[$key] ?? null) === $stateSignature) {
+                        return;
+                    }
+                    $lastStates[$key] = $stateSignature;
 
                     $entry = $addressMap[$key] ?? null;
                     $item = $entry['item'] ?? null;
@@ -787,7 +799,7 @@ final class Cli
         ];
         $flagOptions = [
             'json', 'debug', 'refresh', 'dry_run', 'no_license', 'help', 'version',
-            'no_initial', 'force', 'insecure', 'wait',
+            'no_initial', 'force', 'insecure', 'wait', 'no_dedup',
         ];
 
         for ($i = 0; $i < count($args); $i++) {
@@ -903,6 +915,7 @@ Common options:
   --centrales VALUE        Override the centrales string for licensing
   --subscribe-style fnc|full  Subscription format (default: fnc)
   --no-initial             Do not send initial GETs in monitor mode
+  --no-dedup               Show repeated identical monitor reports
   --duration SECONDS       Monitor duration (0 = forever)
 
 Examples:

@@ -482,6 +482,7 @@ final class LocalConnection
         $this->activated = true;
         $this->lastAct = $act;
         $this->lastKeepAlive = microtime(true);
+        $licenseStrings = self::licenseStrings($this->option, $this->centrales, 0, $act);
         $this->handshakeInfo = [
             'challenge_act' => $act,
             'xor' => $key,
@@ -490,7 +491,8 @@ final class LocalConnection
             'license_status_name' => Protocol::licenseStatusName($status),
             'option' => $this->option,
             'centrales' => $this->centrales,
-            'license_string' => $this->licenseString(0, $act),
+            'license_string' => $licenseStrings['signed'],
+            'license_payload_string' => $licenseStrings['payload'],
         ];
     }
 
@@ -518,19 +520,24 @@ final class LocalConnection
 
     private function sendLicenseResponse(int $act, int $oldAct, int $key, bool $xorResponse): void
     {
-        $string = $this->licenseString($oldAct, $act);
-        $signature = RsaSigner::sign($string);
+        $strings = self::licenseStrings($this->option, $this->centrales, $oldAct, $act);
+        $signature = RsaSigner::sign($strings['signed']);
+
+        // Important: iSGUI signs the full string (including the act number)
+        // but sends only the prefix (without the act number) in the payload.
+        // The central unit reconstructs the signed string from its challenge.
         $payload = array_merge(
             [Protocol::CMD_LICENSE_SIGN],
-            Protocol::stringToBytes($string . ';'),
+            Protocol::stringToBytes($strings['payload'] . ';'),
             Protocol::stringToBytes(base64_encode($signature))
         );
 
         $raw = Protocol::encode($payload, $xorResponse ? $key : 0);
         $this->debug(
             sprintf(
-                'Sending license response: string="%s" signature_b64=%d bytes xor=%s',
-                $string,
+                'Sending license response: signed="%s" payload="%s" signature_b64=%d bytes xor=%s',
+                $strings['signed'],
+                $strings['payload'],
                 strlen(base64_encode($signature)),
                 $xorResponse ? (string) $key : 'off'
             ),
@@ -569,14 +576,29 @@ final class LocalConnection
         );
     }
 
-    private function licenseString(int $oldAct, int $act): string
+    /**
+     * Build the two strings used during the license handshake.
+     *
+     * - "signed" includes the new act number and is what the RSA signature
+     *   covers.
+     * - "payload" is the prefix sent to the central unit; it deliberately
+     *   omits the new act number. This mirrors iSGUI exactly.
+     *
+     * @return array{signed:string,payload:string}
+     */
+    public static function licenseStrings(string $option, string $centrales, int $oldAct, int $act): array
     {
         // ActionScript bitwise operations yield signed 32-bit integers, so a
         // challenge with the high bit set is rendered as a negative decimal
         // number in the signed string. Match that exactly.
-        return 'TDS15101:1/' . $this->option . $this->centrales
+        $prefix = 'TDS15101:1/' . $option . $centrales
             . '/' . self::signed32($oldAct)
-            . '/' . self::signed32($act);
+            . '/';
+
+        return [
+            'signed' => $prefix . self::signed32($act),
+            'payload' => $prefix,
+        ];
     }
 
     private static function signed32(int $value): int
