@@ -1,0 +1,23 @@
+{
+    "name": "seeschloss/teletask-php",
+    "description": "Dependency-free PHP client for the local TELETASK iSGUI/GUI protocol",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.0",
+        "ext-openssl": "*",
+        "ext-simplexml": "*"
+    },
+    "suggest": {
+        "ext-curl": "Used for HTTP configuration downloads when available",
+        "ext-mbstring": "Used for Unicode room/device name matching"
+    },
+    "autoload": {
+        "psr-4": {
+            "Teletask\\": "src/Teletask/"
+        }
+    },
+    "bin": [
+        "bin/teletask"
+    ]
+}
