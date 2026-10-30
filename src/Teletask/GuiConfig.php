@@ -460,11 +460,11 @@ final class GuiConfig
         return new Item($name, $cen, $fnc, $load, $icon, $readonly, $pwdProtect, $device, $extra);
     }
 
-    private function parseUrlItem(\SimpleXMLElement $node, int $fallbackLoad): Item
+    private function parseUrlItem(\SimpleXMLElement $node, int $defaultLoad): Item
     {
         $cen = (int) self::attr($node, 'cen', '0');
         $fnc = (int) self::attr($node, 'fnc', (string) Protocol::FNC_VIDEO_DOORPHONE);
-        $load = (int) self::attr($node, 'ld', (string) $fallbackLoad);
+        $load = (int) self::attr($node, 'ld', (string) $defaultLoad);
         $icon = (int) self::attr($node, 'icon', '7');
         $name = self::attr($node, 'name', '');
         $target = self::attr($node, 'target', '');
@@ -672,9 +672,7 @@ final class GuiConfig
             || str_contains(substr($xml, 0, 200), "\x00");
         if ($looksUtf16) {
             $converted = Text::utf16ToUtf8($xml);
-            if ($converted !== null) {
-                $xml = preg_replace('~encoding\s*=\s*"[^"]*"~i', 'encoding="UTF-8"', $converted, 1) ?? $converted;
-            }
+            $xml = preg_replace('~encoding\s*=\s*"[^"]*"~i', 'encoding="UTF-8"', $converted, 1) ?? $converted;
         }
 
         return $xml;

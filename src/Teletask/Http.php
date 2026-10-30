@@ -7,8 +7,7 @@ namespace Teletask;
 /**
  * Small HTTP client used for the TELETASK configuration files.
  *
- * It uses the curl extension when available and falls back to PHP streams.
- * No third-party packages are required.
+ * Requires the curl extension.
  */
 final class Http
 {
@@ -65,11 +64,11 @@ final class Http
 
     public static function get(string $url, float $timeout = 10.0, array $headers = []): HttpResponse
     {
-        if (function_exists('curl_init')) {
-            return self::curlGet($url, $timeout, $headers);
+        if (!function_exists('curl_init')) {
+            throw new TeletaskException('The curl extension is required for HTTP requests');
         }
 
-        return self::streamGet($url, $timeout, $headers);
+        return self::curlGet($url, $timeout, $headers);
     }
 
     /**
@@ -142,52 +141,4 @@ final class Http
         return new HttpResponse($status, (string) $body, $effectiveUrl, $responseHeaders);
     }
 
-    /**
-     * @param list<string> $headers
-     */
-    private static function streamGet(string $url, float $timeout, array $headers): HttpResponse
-    {
-        $headerLines = array_merge([
-            'Accept: */*',
-            'User-Agent: TeletaskPHP/1.0',
-        ], $headers);
-
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'GET',
-                'timeout' => $timeout,
-                'ignore_errors' => true,
-                'header' => implode("\r\n", $headerLines) . "\r\n",
-            ],
-            'ssl' => [
-                'verify_peer' => self::$verifyTls,
-                'verify_peer_name' => self::$verifyTls,
-            ],
-        ]);
-
-        $body = @file_get_contents($url, false, $context);
-        if ($body === false) {
-            $error = error_get_last();
-            throw new TeletaskException('HTTP request failed: ' . ($error['message'] ?? 'unknown error'), [
-                'url' => $url,
-            ]);
-        }
-
-        $responseHeaders = [];
-        $status = 0;
-        $rawHeaders = $http_response_header ?? [];
-        foreach ($rawHeaders as $line) {
-            if (preg_match('~^HTTP/\S+\s+(\d+)~', $line, $m)) {
-                $status = (int) $m[1];
-                $responseHeaders = [];
-                continue;
-            }
-            $pos = strpos($line, ':');
-            if ($pos !== false) {
-                $responseHeaders[strtolower(trim(substr($line, 0, $pos)))] = trim(substr($line, $pos + 1));
-            }
-        }
-
-        return new HttpResponse($status, $body, $url, $responseHeaders);
-    }
 }

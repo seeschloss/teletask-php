@@ -9,7 +9,7 @@ namespace Teletask;
  *
  * The central unit serves a small text index at:
  *   /gui_files/iSGUI_V2.txt   (preferred)
- *   /gui_files/iSGUI.txt      (fallback)
+ *   /gui_files/iSGUI.txt      (legacy index)
  * and the actual configuration at:
  *   /gui_files/<CentralFile>.gui
  *

@@ -5,12 +5,10 @@
     "license": "MIT",
     "require": {
         "php": ">=8.0",
+        "ext-curl": "*",
+        "ext-mbstring": "*",
         "ext-openssl": "*",
         "ext-simplexml": "*"
-    },
-    "suggest": {
-        "ext-curl": "Used for HTTP configuration downloads when available",
-        "ext-mbstring": "Used for Unicode room/device name matching"
     },
     "autoload": {
         "psr-4": {
