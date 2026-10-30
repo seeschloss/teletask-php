@@ -51,6 +51,8 @@ final class Cli
                 'off' => self::cmdSet($host, $options, 'off'),
                 'toggle' => self::cmdSet($host, $options, 'toggle'),
                 'monitor', 'watch' => self::cmdMonitor($host, $options),
+                'cameras', 'cams', 'video' => self::cmdCameras($host, $options),
+                'url', 'camera-url' => self::cmdUrl($host, $options),
                 'probe', 'handshake' => self::cmdProbe($host, $options),
                 default => throw new TeletaskException('Unknown command: ' . $command),
             };
@@ -501,6 +503,180 @@ final class Cli
     /**
      * @param array<string, mixed> $options
      */
+    private static function cmdCameras(?string $host, array $options): int
+    {
+        $repository = self::repository($host, $options);
+        $config = self::loadConfig($repository, $options);
+        $cameras = $config->cameras();
+        $showCredentials = isset($options['show_credentials']);
+
+        if ($cameras === []) {
+            if (isset($options['json'])) {
+                self::json(['name' => $config->name, 'cameras' => []]);
+            } else {
+                self::out('No cameras or video door phones found in this configuration.' . PHP_EOL);
+            }
+
+            return 0;
+        }
+
+        if (isset($options['json'])) {
+            $rows = [];
+            foreach ($cameras as $entry) {
+                $rows[] = self::cameraRow($config, $entry['room'], $entry['item'], $showCredentials);
+            }
+            self::json([
+                'name' => $config->name,
+                'source_url' => $config->sourceUrl,
+                'cameras' => $rows,
+            ]);
+
+            return 0;
+        }
+
+        self::out('Configuration: ' . $config->name . PHP_EOL);
+        self::out('Cameras: ' . count($cameras) . PHP_EOL);
+        self::out(PHP_EOL);
+
+        foreach ($cameras as $entry) {
+            $row = self::cameraRow($config, $entry['room'], $entry['item'], $showCredentials);
+            self::out(($row['room'] !== '' ? $row['room'] . ' / ' : '') . $row['name']
+                . ' (' . $row['address'] . ')' . PHP_EOL);
+            self::out('  url: ' . ($row['url'] !== '' ? $row['url'] : '<none>') . PHP_EOL);
+            self::out('  mode: ' . $row['mode'] . PHP_EOL);
+            if ($row['has_credentials']) {
+                if ($showCredentials) {
+                    self::out('  username: ' . $row['username'] . PHP_EOL);
+                    self::out('  password: ' . $row['password'] . PHP_EOL);
+                } else {
+                    self::out('  auth: credentials available (use --show-credentials)' . PHP_EOL);
+                }
+            } else {
+                self::out('  auth: none' . PHP_EOL);
+            }
+            self::out(PHP_EOL);
+        }
+
+        return 0;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    private static function cmdUrl(?string $host, array $options): int
+    {
+        $repository = self::repository($host, $options);
+        $config = self::loadConfig($repository, $options);
+        $target = self::resolveTarget($config, $options);
+        $item = $target['item'];
+
+        if ($item === null || $item->fnc !== Protocol::FNC_VIDEO_DOORPHONE) {
+            throw new TeletaskException('The selected item is not a camera or video door phone');
+        }
+
+        $row = self::cameraRow($config, $target['room'], $item, isset($options['show_credentials']));
+        if ($row['url'] === '') {
+            throw new TeletaskException('No stream URL is configured for ' . $item->name);
+        }
+
+        $url = $row['url'];
+        $credentials = self::cameraCredentials($config, $item);
+        if (isset($options['with_credentials']) && $credentials['username'] !== '' && $credentials['password'] !== '') {
+            $url = self::withCredentials($url, $credentials['username'], $credentials['password']);
+        }
+
+        if (isset($options['json'])) {
+            $result = $row;
+            $result['url'] = $url;
+            self::json($result);
+
+            return 0;
+        }
+
+        if ($credentials['username'] !== '' && $credentials['password'] !== '' && !isset($options['with_credentials'])) {
+            self::err('Note: this camera has credentials; use --with-credentials to embed them in the URL.' . PHP_EOL);
+        }
+
+        self::out($url . PHP_EOL);
+
+        return 0;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function cameraRow(GuiConfig $config, ?Room $room, Item $item, bool $includeCredentials): array
+    {
+        $meta = $item->device?->meta ?? [];
+        $url = (string) ($meta['url'] ?? $item->extra['url'] ?? '');
+        $videoCodec = (int) ($meta['videocodec'] ?? $item->extra['videocodec'] ?? 0);
+        $credentials = self::cameraCredentials($config, $item);
+        $hasCredentials = $credentials['username'] !== '' && $credentials['password'] !== '';
+
+        $row = [
+            'room' => $room?->name ?? '',
+            'name' => $item->name,
+            'cen' => $item->cen,
+            'fnc' => $item->fnc,
+            'ld' => $item->load,
+            'address' => $item->address(),
+            'url' => $url,
+            'videocodec' => $videoCodec,
+            'mode' => match ($videoCodec) {
+                0 => 'still-image',
+                1 => 'mjpeg',
+                default => 'unknown',
+            },
+            'has_credentials' => $hasCredentials,
+        ];
+
+        if ($includeCredentials) {
+            $row['username'] = $credentials['username'];
+            $row['password'] = $credentials['password'];
+        }
+
+        return $row;
+    }
+
+    /**
+     * @return array{username:string,password:string}
+     */
+    private static function cameraCredentials(GuiConfig $config, Item $item): array
+    {
+        $phone = $config->videoDoorPhoneFor($item);
+
+        return [
+            'username' => (string) ($phone['username'] ?? ''),
+            'password' => (string) ($phone['password'] ?? ''),
+        ];
+    }
+
+    private static function withCredentials(string $url, string $username, string $password): string
+    {
+        $parts = parse_url($url);
+        if ($parts === false || !isset($parts['scheme'], $parts['host'])) {
+            return $url;
+        }
+
+        $host = $parts['host'];
+        if (str_contains($host, ':') && $host[0] !== '[') {
+            $host = '[' . $host . ']';
+        }
+
+        $authority = rawurlencode($username) . ':' . rawurlencode($password) . '@' . $host;
+        if (isset($parts['port'])) {
+            $authority .= ':' . $parts['port'];
+        }
+
+        return $parts['scheme'] . '://' . $authority
+            . ($parts['path'] ?? '')
+            . (isset($parts['query']) ? '?' . $parts['query'] : '')
+            . (isset($parts['fragment']) ? '#' . $parts['fragment'] : '');
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
     private static function cmdProbe(?string $host, array $options): int
     {
         $repository = self::repository($host, $options);
@@ -800,6 +976,7 @@ final class Cli
         $flagOptions = [
             'json', 'debug', 'refresh', 'dry_run', 'no_license', 'help', 'version',
             'no_initial', 'force', 'insecure', 'wait', 'no_dedup',
+            'show_credentials', 'with_credentials',
         ];
 
         for ($i = 0; $i < count($args); $i++) {
@@ -880,6 +1057,8 @@ Commands:
   set                      Send an action to one device
   on | off | toggle        Shortcuts for set --action on/off/toggle
   monitor                  Subscribe and print live state updates
+  cameras                  List camera/video-door-phone stream URLs
+  url                      Print just the stream URL for one camera
   probe                    Connect, perform the license handshake and dump traffic
   help                     Show this help
   version                  Show the version
@@ -916,6 +1095,8 @@ Common options:
   --subscribe-style fnc|full  Subscription format (default: fnc)
   --no-initial             Do not send initial GETs in monitor mode
   --no-dedup               Show repeated identical monitor reports
+  --show-credentials       Include camera username/password in output
+  --with-credentials       Embed camera credentials in the URL printed by 'url'
   --duration SECONDS       Monitor duration (0 = forever)
 
 Examples:
@@ -926,6 +1107,8 @@ Examples:
   php bin/teletask set 192.168.0.82 --room Kitchen --device "Cooking island" --action 40
   php bin/teletask set 192.168.0.82 --room Living --device RGB --color ff8800
   php bin/teletask monitor 192.168.0.82 --room Kitchen --duration 30
+  php bin/teletask cameras 192.168.0.82
+  php bin/teletask url 192.168.0.82 --room Kitchen --device "Front door"
   php bin/teletask probe 192.168.0.82 --debug
 
 Notes:

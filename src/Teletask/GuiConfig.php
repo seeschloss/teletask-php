@@ -201,6 +201,48 @@ final class GuiConfig
     }
 
     /**
+     * Camera / video-door-phone items on the configured pages.
+     *
+     * @return list<array{room:Room,item:Item}>
+     */
+    public function cameras(): array
+    {
+        $result = [];
+        $seen = [];
+        foreach ($this->rooms as $room) {
+            foreach ($room->items as $item) {
+                if ($item->fnc !== Protocol::FNC_VIDEO_DOORPHONE) {
+                    continue;
+                }
+                $key = $item->cen . ':' . $item->fnc . ':' . $item->load;
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $result[] = ['room' => $room, 'item' => $item];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Credentials and metadata for a camera item, if the .gui has a matching
+     * VIDEO_DOOR_PHONE entry. Credentials are intentionally not copied into
+     * the Item/Device metadata so they do not leak through generic JSON output.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function videoDoorPhoneFor(Item $item): ?array
+    {
+        if ($item->fnc !== Protocol::FNC_VIDEO_DOORPHONE) {
+            return null;
+        }
+
+        return $this->videoDoorPhones[(string) $item->load] ?? null;
+    }
+
+    /**
      * @return list<int>
      */
     public function uniqueFunctions(): array
@@ -463,19 +505,35 @@ final class GuiConfig
     private function parseUrlItem(\SimpleXMLElement $node, int $defaultLoad): Item
     {
         $cen = (int) self::attr($node, 'cen', '0');
-        $fnc = (int) self::attr($node, 'fnc', (string) Protocol::FNC_VIDEO_DOORPHONE);
         $load = (int) self::attr($node, 'ld', (string) $defaultLoad);
         $icon = (int) self::attr($node, 'icon', '7');
         $name = self::attr($node, 'name', '');
         $target = self::attr($node, 'target', '');
         $pwdProtect = (int) self::attr($node, 'pwdprotect', '0');
 
+        $phone = $this->videoDoorPhones[(string) $load] ?? null;
+        $url = (string) ($phone['url'] ?? '');
+        if ($url === '') {
+            $url = $target;
+        }
+        if ($name === '') {
+            $name = (string) ($phone['name'] ?? '');
+        }
+        $videoCodec = (int) ($phone['videocodec'] ?? 0);
+        $cloudPort = (int) ($phone['cloudport'] ?? 0);
+
         $device = $this->deviceFor($cen, Protocol::FNC_VIDEO_DOORPHONE, $load);
-        $device->meta['url'] = $target;
-        $device->meta['name'] = $name;
+        $device->meta = array_merge($device->meta, [
+            'url' => $url,
+            'name' => $name,
+            'videocodec' => $videoCodec,
+            'cloudport' => $cloudPort,
+        ]);
 
         return new Item($name, $cen, Protocol::FNC_VIDEO_DOORPHONE, $load, $icon, false, $pwdProtect, $device, [
-            'url' => $target,
+            'url' => $url,
+            'videocodec' => $videoCodec,
+            'cloudport' => $cloudPort,
         ]);
     }
 

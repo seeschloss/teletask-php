@@ -99,6 +99,22 @@ php bin/teletask monitor 192.168.0.82 --room Kitchen --json --duration 10
 If several configurations exist on the central unit, choose one with
 `--config NAME` (name shown by `discover`).
 
+## Cameras
+
+```bash
+# List camera URLs
+php bin/teletask cameras 192.168.0.82
+
+# Print stream URL
+php bin/teletask url 192.168.0.82 --room Kitchen --device "Front door"
+
+# Embed credentials in the URL
+php bin/teletask url 192.168.0.82 --room Kitchen --device "Front door" --with-credentials
+
+# Example
+vlc "$(php bin/teletask url 192.168.0.82 --room Kitchen --device 'Front door' --with-credentials)"
+```
+
 ## Diagnostics
 
 ```bash

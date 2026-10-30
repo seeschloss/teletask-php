@@ -85,8 +85,14 @@ function syntheticXml(): string
       <ITEMS>
         <ITEM cen="0" fnc="8" ld="2" icon="3" name="Watch TV" readonly="False" pwdprotect="0" visible="True" />
       </ITEMS>
+      <URLS>
+        <URL fnc="1003" ld="1" target="http://camera.local/mjpg" name="Front door" icon="7" pwdprotect="0" />
+      </URLS>
     </PAGE>
   </PAGES>
+  <VIDEO_DOOR_PHONES>
+    <VIDEO_DOOR_PHONE key="1" url="http://camera.local/mjpg" name="Front door" username="user" password="secret" videocodec="1" cloudport="0" />
+  </VIDEO_DOOR_PHONES>
   <SENSORSZONES>
     <SENSORZONE cen="1" ld="1" name="Temperature" type="1" speedcount="0" iscontrolled="False" nomeasurement="False" />
   </SENSORSZONES>
@@ -218,6 +224,29 @@ test('config: decodes and parses a synthetic .gui', function (): void {
     assertSame('Cooking island', $config->findItem('Kitchen', 'Cooking island')->name);
     assertSame(10, $config->findItem('Kitchen', 'Cooking island')->load);
     assertSame('normal', $config->getOption());
+});
+
+test('config: parses camera URLs without leaking credentials', function (): void {
+    $config = GuiConfig::fromGuiBytes(encodeGui(syntheticXml()), 'test://gui');
+    $cameras = $config->cameras();
+    assertSame(1, count($cameras));
+
+    $camera = $cameras[0]['item'];
+    assertSame('Front door', $camera->name);
+    assertSame(Protocol::FNC_VIDEO_DOORPHONE, $camera->fnc);
+    assertSame('http://camera.local/mjpg', $camera->device->meta['url']);
+    assertSame(1, $camera->device->meta['videocodec']);
+
+    $phone = $config->videoDoorPhoneFor($camera);
+    assertTrue($phone !== null);
+    assertSame('user', $phone['username']);
+    assertSame('secret', $phone['password']);
+
+    $array = $camera->toArray();
+    assertTrue(!isset($array['device_meta']['username']), 'device_meta must not contain username');
+    assertTrue(!isset($array['device_meta']['password']), 'device_meta must not contain password');
+    assertTrue(!isset($array['extra']['username']), 'extra must not contain username');
+    assertTrue(!isset($array['extra']['password']), 'extra must not contain password');
 });
 
 test('config: parses the TT configuration index', function (): void {
